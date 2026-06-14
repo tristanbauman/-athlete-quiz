@@ -1,2 +1,96 @@
+   if (!pendingAnswers) return;
+    setScreen("loading");
+    await fetchResult(pendingAnswers, retryCount);
+  };
 
- 
+  const retake = () => {
+    setScreen("quiz");
+    setCurrentQ(0);
+    setAnswers([]);
+    setSelected(null);
+    setResult(null);
+    setErrorDetail("");
+    setPendingAnswers(null);
+    setRetryCount(0);
+  };
+
+  const copyResult = () => {
+    if (!result) return;
+    const text = `🏆 My athlete type: ${result.type}\n"${result.tagline}"\n\n${result.description}\n\nComps: ${result.comps.join(", ")}\n\nWhat type of athlete are you?`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const shareToX = () => {
+    if (!result) return;
+    const text = encodeURIComponent(`🏆 My athlete type: ${result.type}\n"${result.tagline}"\n\nWhat type of athlete are you?`);
+    window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
+  };
+
+  const W = { fontFamily: "'Inter', sans-serif" };
+
+  return (
+    <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "#f5f5f5", display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px 60px", fontFamily: "'Inter', sans-serif" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } button:hover { opacity: 0.88; }`}</style>
+
+      {/* QUIZ */}
+      {screen === "quiz" && (
+        <>
+          <div style={{ textAlign: "center", marginBottom: 32, marginTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#FFE01B", marginBottom: 8 }}>Sports Personality Quiz</div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: "clamp(38px, 10vw, 72px)", lineHeight: 0.95, fontWeight: 900, fontStyle: "italic", textTransform: "uppercase" }}>
+              WHAT TYPE OF <br /><span style={{ color: "#FFE01B" }}>ATHLETE</span><br />ARE YOU?
+            </div>
+            <p style={{ fontSize: 13, color: "#666", maxWidth: 280, margin: "12px auto 0", lineHeight: 1.6 }}>10 questions. AI reads your competitive DNA.</p>
+          </div>
+
+          <div style={{ width: "100%", maxWidth: 540 }}>
+            <div style={{ width: "100%", height: 3, background: "#1a1a1a", borderRadius: 2, marginBottom: 28, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${progress}%`, background: "#FFE01B", borderRadius: 2, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#555", marginBottom: 10 }}>
+              QUESTION {currentQ + 1} OF {QUESTIONS.length}
+            </div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: "clamp(20px, 5vw, 30px)", fontStyle: "italic", fontWeight: 700, lineHeight: 1.2, color: "#f5f5f5", marginBottom: 22 }}>
+              {q.q}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {q.opts.map((opt, i) => (
+                <button key={i} onClick={() => setSelected(i)} style={{ background: selected === i ? "#1a1a00" : "#141414", border: `1.5px solid ${selected === i ? "#FFE01B" : "#222"}`, color: selected === i ? "#FFE01B" : "#f5f5f5", fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 500, padding: "15px 18px", borderRadius: 8, cursor: "pointer", textAlign: "left", lineHeight: 1.4, width: "100%" }}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <button disabled={selected === null} onClick={handleNext} style={{ marginTop: 22, width: "100%", background: selected === null ? "#1a1a1a" : "#FFE01B", color: selected === null ? "#444" : "#0a0a0a", fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 20, fontWeight: 900, border: "none", borderRadius: 8, padding: "15px", cursor: selected === null ? "not-allowed" : "pointer" }}>
+              {currentQ + 1 === QUESTIONS.length ? "Get My Result →" : "Next →"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* LOADING */}
+      {screen === "loading" && (
+        <div style={{ textAlign: "center", padding: "80px 20px" }}>
+          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 48, color: "#FFE01B", textTransform: "uppercase", marginBottom: 10, lineHeight: 1 }}>ANALYZING<br />YOUR DNA</div>
+          <div style={{ color: "#555", fontSize: 13, marginBottom: 32 }}>Running the numbers on your athlete profile...</div>
+          <div style={{ width: 44, height: 44, border: "3px solid #222", borderTopColor: "#FFE01B", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
+        </div>
+      )}
+
+      {/* ERROR */}
+      {screen === "error" && (
+        <div style={{ width: "100%", maxWidth: 540, textAlign: "center", paddingTop: 60 }}>
+          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 48, color: "#FFE01B", textTransform: "uppercase", marginBottom: 20 }}>OOPS</div>
+          <div style={{ background: "#1a0000", border: "1.5px solid #440000", borderRadius: 8, padding: "20px", marginBottom: 16 }}>
+            <div style={{ color: "#ff6b6b", fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>The AI hit a snag. Tap retry — your answers are saved.</div>
+            <button onClick={retryFetch} style={{ background: "#FFE01B", color: "#0a0a0a", border: "none", borderRadius: 8, padding: "13px 32px", cursor: "pointer", fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 18 }}>
+              Retry →
+            </button>
+          </div>
+          <button onClick={retake} style={{ background: "transparent", color: "#555", border: "none", fontSize: 13, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>Start over</button>
+        </div>
+      )}
+
+    
