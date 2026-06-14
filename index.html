@@ -1,0 +1,269 @@
+import { useState } from "react";
+
+const QUESTIONS = [
+  { q: "Your team is down by one with 2 minutes left. What's your move?", opts: ["Take over — I want the ball in my hands", "Set up my teammate for the best shot", "Stay disciplined, trust the system", "Read the defense and improvise"] },
+  { q: "How do you prepare the night before a big game?", opts: ["Visualize every play obsessively", "Chill out — anxiety kills performance", "Watch film and study the opponent", "Trust my routine and go to bed early"] },
+  { q: "A referee makes a terrible call against you. You...", opts: ["Lose it — injustice fires me up", "Use the anger as fuel silently", "Shake it off immediately", "Argue calmly and move on"] },
+  { q: "What role do you naturally play in a group?", opts: ["The one who leads by example", "The loudest voice in the huddle", "The one who keeps everyone calm", "The one who has a plan for everything"] },
+  { q: "You've been in a slump for 3 weeks. What do you do?", opts: ["Outwork it — more reps, more hours", "Step back and reset mentally", "Break it down and find the flaw", "Lean on my teammates to pull me through"] },
+  { q: "What does winning feel like to you?", opts: ["Pure relief — I hate losing more than I love winning", "A rush I chase every single day", "Proof that the process worked", "Best when it's shared with the team"] },
+  { q: "Pick your natural environment:", opts: ["One-on-one competition, no excuses", "The controlled chaos of a team sport", "Individual sport with pure statistics", "High-stakes moments with a crowd"] },
+  { q: "Your biggest athletic weakness is probably...", opts: ["Patience — I want it NOW", "Getting out of my own head", "Playing it too safe in big moments", "Relying too much on others"] },
+  { q: "What motivates you most?", opts: ["Proving people wrong", "Being the best to ever do it", "Leaving a legacy", "The love of competition itself"] },
+  { q: "How do you react after a bad loss?", opts: ["Can't sleep — I replay every mistake", "Channel it into the next session immediately", "Process it, then let it go", "Talk it through with my team"] },
+];
+
+// Fallback results in case API fails repeatedly
+const FALLBACK_RESULTS = [
+  { type: "THE SILENT ASSASSIN", tagline: "Calm until it's time to not be calm.", description: "You don't talk — you perform. When the moment gets biggest, you get quietest. Opponents underestimate you right up until you end them. You're the player everyone respects but nobody sees coming.", comps: ["Kawhi Leonard", "Barry Sanders", "Henrik Lundqvist"], stats: [{ label: "MENTAL EDGE", value: "96%" }, { label: "CLUTCH FACTOR", value: "94%" }, { label: "GRIND MODE", value: "88%" }] },
+  { type: "THE IRON COMPETITOR", tagline: "Second place is just first loser.", description: "You're allergic to losing. Every practice rep matters, every drill has stakes, every moment is preparation for the moment. People think you're intense — you think they're not intense enough.", comps: ["Kobe Bryant", "Tom Brady", "Sidney Crosby"], stats: [{ label: "MENTAL EDGE", value: "91%" }, { label: "CLUTCH FACTOR", value: "89%" }, { label: "GRIND MODE", value: "99%" }] },
+  { type: "THE FIELD GENERAL", tagline: "You win before the game even starts.", description: "You study, prepare, and outthink your opponents before they've laced up. In-game you're two plays ahead, reading the chess match in real time. Teams with you don't just win — they execute.", comps: ["Peyton Manning", "Wayne Gretzky", "Tiger Woods"], stats: [{ label: "MENTAL EDGE", value: "98%" }, { label: "CLUTCH FACTOR", value: "85%" }, { label: "GRIND MODE", value: "90%" }] },
+];
+
+export default function AthleteQuiz() {
+  const [screen, setScreen] = useState("quiz");
+  const [currentQ, setCurrentQ] = useState(0);
+  const [answers, setAnswers] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [result, setResult] = useState(null);
+  const [errorDetail, setErrorDetail] = useState("");
+  const [pendingAnswers, setPendingAnswers] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  const q = QUESTIONS[currentQ];
+  const progress = (currentQ / QUESTIONS.length) * 100;
+
+  const handleNext = async () => {
+    if (selected === null) return;
+    const newAnswers = [...answers, { question: q.q, answer: q.opts[selected] }];
+    setAnswers(newAnswers);
+    if (currentQ + 1 >= QUESTIONS.length) {
+      setPendingAnswers(newAnswers);
+      setRetryCount(0);
+      setScreen("loading");
+      await fetchResult(newAnswers, 0);
+    } else {
+      setCurrentQ(currentQ + 1);
+      setSelected(null);
+    }
+  };
+
+  const fetchResult = async (ans, attempt) => {
+    // After 2 failed attempts, use a fallback result
+    if (attempt >= 2) {
+      const fallback = FALLBACK_RESULTS[Math.floor(Math.random() * FALLBACK_RESULTS.length)];
+      setResult(fallback);
+      setScreen("result");
+      return;
+    }
+
+    const summaryLines = ans.map((a, i) => `Q${i + 1}: ${a.question} → ${a.answer}`).join("\n");
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 800,
+          messages: [{
+            role: "user",
+            content: `Based on these sports quiz answers, return a JSON athlete profile. Return ONLY the JSON object, nothing else at all.
+
+Answers:
+${summaryLines}
+
+Return this exact JSON structure:
+{"type":"THE [ARCHETYPE NAME]","tagline":"short punchy tagline","description":"2-3 sentences about their athlete personality","comps":["Athlete 1","Athlete 2","Athlete 3"],"stats":[{"label":"MENTAL EDGE","value":"88%"},{"label":"CLUTCH FACTOR","value":"92%"},{"label":"GRIND MODE","value":"95%"}]}`
+          }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Extract all text from content blocks
+      let rawText = "";
+      if (data.content && Array.isArray(data.content)) {
+        for (const block of data.content) {
+          if (block.type === "text" && block.text) {
+            rawText += block.text;
+          }
+        }
+      }
+
+      rawText = rawText.trim();
+
+      // Try to find JSON object in the response
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error(`No JSON found in response`);
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      if (!parsed.type || !parsed.description || !parsed.comps || !parsed.stats) {
+        throw new Error("Missing required fields");
+      }
+
+      setResult(parsed);
+      setScreen("result");
+
+    } catch (err) {
+      const nextAttempt = attempt + 1;
+      setRetryCount(nextAttempt);
+      if (nextAttempt >= 2) {
+        // Use fallback silently
+        const fallback = FALLBACK_RESULTS[Math.floor(Math.random() * FALLBACK_RESULTS.length)];
+        setResult(fallback);
+        setScreen("result");
+      } else {
+        setErrorDetail(err.message);
+        setScreen("error");
+      }
+    }
+  };
+
+  const retryFetch = async () => {
+    if (!pendingAnswers) return;
+    setScreen("loading");
+    await fetchResult(pendingAnswers, retryCount);
+  };
+
+  const retake = () => {
+    setScreen("quiz");
+    setCurrentQ(0);
+    setAnswers([]);
+    setSelected(null);
+    setResult(null);
+    setErrorDetail("");
+    setPendingAnswers(null);
+    setRetryCount(0);
+  };
+
+  const copyResult = () => {
+    if (!result) return;
+    const text = `🏆 My athlete type: ${result.type}\n"${result.tagline}"\n\n${result.description}\n\nComps: ${result.comps.join(", ")}\n\nWhat type of athlete are you?`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const shareToX = () => {
+    if (!result) return;
+    const text = encodeURIComponent(`🏆 My athlete type: ${result.type}\n"${result.tagline}"\n\nWhat type of athlete are you?`);
+    window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
+  };
+
+  const W = { fontFamily: "'Inter', sans-serif" };
+
+  return (
+    <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "#f5f5f5", display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px 60px", fontFamily: "'Inter', sans-serif" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } button:hover { opacity: 0.88; }`}</style>
+
+      {/* QUIZ */}
+      {screen === "quiz" && (
+        <>
+          <div style={{ textAlign: "center", marginBottom: 32, marginTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#FFE01B", marginBottom: 8 }}>Sports Personality Quiz</div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: "clamp(38px, 10vw, 72px)", lineHeight: 0.95, fontWeight: 900, fontStyle: "italic", textTransform: "uppercase" }}>
+              WHAT TYPE OF <br /><span style={{ color: "#FFE01B" }}>ATHLETE</span><br />ARE YOU?
+            </div>
+            <p style={{ fontSize: 13, color: "#666", maxWidth: 280, margin: "12px auto 0", lineHeight: 1.6 }}>10 questions. AI reads your competitive DNA.</p>
+          </div>
+
+          <div style={{ width: "100%", maxWidth: 540 }}>
+            <div style={{ width: "100%", height: 3, background: "#1a1a1a", borderRadius: 2, marginBottom: 28, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${progress}%`, background: "#FFE01B", borderRadius: 2, transition: "width 0.4s ease" }} />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#555", marginBottom: 10 }}>
+              QUESTION {currentQ + 1} OF {QUESTIONS.length}
+            </div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: "clamp(20px, 5vw, 30px)", fontStyle: "italic", fontWeight: 700, lineHeight: 1.2, color: "#f5f5f5", marginBottom: 22 }}>
+              {q.q}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {q.opts.map((opt, i) => (
+                <button key={i} onClick={() => setSelected(i)} style={{ background: selected === i ? "#1a1a00" : "#141414", border: `1.5px solid ${selected === i ? "#FFE01B" : "#222"}`, color: selected === i ? "#FFE01B" : "#f5f5f5", fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 500, padding: "15px 18px", borderRadius: 8, cursor: "pointer", textAlign: "left", lineHeight: 1.4, width: "100%" }}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <button disabled={selected === null} onClick={handleNext} style={{ marginTop: 22, width: "100%", background: selected === null ? "#1a1a1a" : "#FFE01B", color: selected === null ? "#444" : "#0a0a0a", fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 20, fontWeight: 900, border: "none", borderRadius: 8, padding: "15px", cursor: selected === null ? "not-allowed" : "pointer" }}>
+              {currentQ + 1 === QUESTIONS.length ? "Get My Result →" : "Next →"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* LOADING */}
+      {screen === "loading" && (
+        <div style={{ textAlign: "center", padding: "80px 20px" }}>
+          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 48, color: "#FFE01B", textTransform: "uppercase", marginBottom: 10, lineHeight: 1 }}>ANALYZING<br />YOUR DNA</div>
+          <div style={{ color: "#555", fontSize: 13, marginBottom: 32 }}>Running the numbers on your athlete profile...</div>
+          <div style={{ width: 44, height: 44, border: "3px solid #222", borderTopColor: "#FFE01B", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
+        </div>
+      )}
+
+      {/* ERROR */}
+      {screen === "error" && (
+        <div style={{ width: "100%", maxWidth: 540, textAlign: "center", paddingTop: 60 }}>
+          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 48, color: "#FFE01B", textTransform: "uppercase", marginBottom: 20 }}>OOPS</div>
+          <div style={{ background: "#1a0000", border: "1.5px solid #440000", borderRadius: 8, padding: "20px", marginBottom: 16 }}>
+            <div style={{ color: "#ff6b6b", fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>The AI hit a snag. Tap retry — your answers are saved.</div>
+            <button onClick={retryFetch} style={{ background: "#FFE01B", color: "#0a0a0a", border: "none", borderRadius: 8, padding: "13px 32px", cursor: "pointer", fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 18 }}>
+              Retry →
+            </button>
+          </div>
+          <button onClick={retake} style={{ background: "transparent", color: "#555", border: "none", fontSize: 13, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>Start over</button>
+        </div>
+      )}
+
+      {/* RESULT */}
+      {screen === "result" && result && (
+        <div style={{ width: "100%", maxWidth: 540, background: "#141414", border: "1.5px solid #222", borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ background: "#FFE01B", padding: "26px 26px 20px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", color: "#555", marginBottom: 6 }}>Your Athlete Type</div>
+            <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: "clamp(26px, 7vw, 48px)", lineHeight: 0.95, color: "#0a0a0a", textTransform: "uppercase", marginBottom: 8 }}>{result.type}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#333", fontStyle: "italic" }}>"{result.tagline}"</div>
+          </div>
+          <div style={{ padding: 26 }}>
+            <p style={{ fontSize: 14, lineHeight: 1.7, color: "#aaa", marginBottom: 20 }}>{result.description}</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 22 }}>
+              {result.comps.map((c, i) => (
+                <span key={i} style={{ background: "#0a0a0a", border: "1.5px solid #222", color: "#FFE01B", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 100, textTransform: "uppercase" }}>{c}</span>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
+              {result.stats.map((s, i) => (
+                <div key={i} style={{ background: "#0a0a0a", borderRadius: 8, padding: "12px 8px", textAlign: "center" }}>
+                  <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 28, color: "#FFE01B", lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#444" }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ borderTop: "1.5px solid #222", paddingTop: 22 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#444", marginBottom: 12 }}>Share your result</div>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                <button onClick={copyResult} style={{ flex: 1, background: "#0a0a0a", border: "1.5px solid #222", color: "#f5f5f5", fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, padding: "11px 14px", borderRadius: 8, cursor: "pointer" }}>
+                  {copied ? "✅ Copied!" : "📋 Copy Result"}
+                </button>
+                <button onClick={shareToX} style={{ flex: 1, background: "#0a0a0a", border: "1.5px solid #222", color: "#f5f5f5", fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, padding: "11px 14px", borderRadius: 8, cursor: "pointer" }}>
+                  𝕏 Post to X
+                </button>
+              </div>
+              <button onClick={retake} style={{ width: "100%", background: "#FFE01B", color: "#0a0a0a", fontFamily: "Georgia, serif", fontStyle: "italic", fontWeight: 900, fontSize: 20, border: "none", borderRadius: 8, padding: "14px", cursor: "pointer" }}>
+                Retake the Quiz →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
